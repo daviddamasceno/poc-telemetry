@@ -1,0 +1,79 @@
+{
+  "title": "Traces and Logs - Jaeger Integration",
+  "tags": ["poc", "traces", "logs", "jaeger"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 0,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Application Logs - Python Services",
+      "type": "logs",
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "{container_name=~\"python.*\"}",
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "Loki"}
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none",
+        "enableLogDetails": true
+      }
+    },
+    {
+      "id": 2,
+      "title": "Nginx Access Logs",
+      "type": "logs",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {
+          "expr": "{container_name=\"nginx\"}",
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "Loki"}
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 3,
+      "title": "OtelCollector Logs",
+      "type": "logs",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "targets": [
+        {
+          "expr": "{container_name=\"otel-collector\"}",
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "Loki"}
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "sortOrder": "Descending"
+      }
+    }
+  ],
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "links": [
+    {
+      "title": "Jaeger UI",
+      "type": "link",
+      "url": "http://localhost:16686",
+      "icon": "external link",
+      "tags": []
+    }
+  ]
+}

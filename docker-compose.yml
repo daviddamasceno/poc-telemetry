@@ -1,0 +1,166 @@
+services:
+  # Stack de Observabilidade
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "${JAEGER_AGENT_PORT:-6831}:6831/udp"
+      - "${JAEGER_AGENT_HTTP_PORT:-14268}:14268"
+      - "${JAEGER_METRICS_PORT:-8888}:8888"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=memory
+    depends_on:
+      - prometheus
+    networks:
+      - observability-network
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - observability-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-storage:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - observability-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - loki
+      - prometheus
+      - jaeger
+    networks:
+      - observability-network
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+      - nginx-logs:/var/log/nginx:ro
+    ports:
+      - "${OTEL_HTTP_PORT:-4318}:4318"
+      - "${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_METRICS_PORT:-8889}:8889"
+    depends_on:
+      - jaeger
+      - loki
+      - prometheus
+    networks:
+      - observability-network
+      - app-network
+
+  # Aplicações Python
+  python1:
+    build:
+      context: ./python-app
+      dockerfile: Dockerfile
+    container_name: python1
+    environment:
+      - APP_NAME=python1
+      - APP_PORT=${PYTHON1_PORT:-8001}
+      - TARGET_URL=${PYTHON1_TARGET_URL:-http://nginx:80/api/python2/api/start}
+      - OTEL_SERVICE_NAME=python1
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    ports:
+      - "${PYTHON1_PORT:-8001}:8001"
+    depends_on:
+      - otel-collector
+    networks:
+      - app-network
+
+  python2:
+    build:
+      context: ./python-app
+      dockerfile: Dockerfile
+    container_name: python2
+    environment:
+      - APP_NAME=python2
+      - APP_PORT=${PYTHON2_PORT:-8002}
+      - TARGET_URL=${PYTHON2_TARGET_URL:-http://nginx:80/api/python3}
+      - OTEL_SERVICE_NAME=python2
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    ports:
+      - "${PYTHON2_PORT:-8002}:8002"
+    depends_on:
+      - otel-collector
+    networks:
+      - app-network
+
+  python3:
+    build:
+      context: ./python-app
+      dockerfile: Dockerfile
+    container_name: python3
+    environment:
+      - APP_NAME=python3
+      - APP_PORT=${PYTHON3_PORT:-8003}
+      - TARGET_URL=${PYTHON3_TARGET_URL:-http://nginx:80/api/python1}
+      - OTEL_SERVICE_NAME=python3
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    ports:
+      - "${PYTHON3_PORT:-8003}:8003"
+    depends_on:
+      - otel-collector
+    networks:
+      - app-network
+
+  # Nginx
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: nginx
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - nginx-logs:/var/log/nginx
+    depends_on:
+      - python1
+      - python2
+      - python3
+      - otel-collector
+    networks:
+      - app-network
+      - observability-network
+
+volumes:
+  grafana-storage:
+  nginx-logs:
+  prometheus-storage:
+
+networks:
+  observability-network:
+    driver: bridge
+  app-network:
+    driver: bridge
+
